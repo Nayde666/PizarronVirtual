@@ -1,3 +1,10 @@
+'''
+El proposito que tengo para este programa es:
+    Tener opciones de colores, en forma de botones de colores, y cuando
+    se seleconen con el dedo pulgar se podra dibujar con ese mismo color, 
+    existira la opcion de borrador y ptra de limpiar pantalla, asi como el cambiar el
+    tamaño del pincel 
+'''
 import cv2
 import numpy as np 
 import mediapipe as mp 
@@ -22,7 +29,7 @@ color_Rosa = (212,0,255)
 
 color_inicial = color_Blanco
 # -------------------------------------------------------------------------------------------------------------------
-# Diccionario con las posiciones en la pantalla de los colores(x,y,w,h)
+# diccionario con las posiciones en la pantalla de los colores(x,y,w,h)
 seleccion_colores = {
     "blanco" : {"color": color_Blanco, "posicion":(10, 6, 40, 40), "relleno": -1},
     "rojo" : {"color": color_Rojo, "posicion":(50, 6, 80, 40), "relleno": -1},
@@ -34,7 +41,9 @@ seleccion_colores = {
     "rosa" : {"color": color_Rosa, "posicion":(290, 6, 320, 40), "relleno": -1},
 }
 limpiar_pantalla = {"posicion": (340,6,380,40), "label": "limpiar", "color": (177,77,255)} #boton limpiar pantalla completa
-seleccion_del_grosor ={"posicion": (400,6,600,50), "niveles":20} # seleccionar grosor apara lapiz
+seleccion_del_grosor ={"posicion": (490,6,600,50), "niveles":20} # seleccionar grosor apara lapiz
+borrador = {"posicion": (430, 6, 470, 40), "label": "borrador", "color": (255, 255, 255)}
+
 #--------------------------------------------------------------------------------------------------------------------
 x1 = None
 y1 = None
@@ -58,7 +67,7 @@ with mp_hands.Hands(
         ret, frame = captura.read()
         if ret == False: break
         # efecto espejo
-        #frame = cv2.flip(frame, 1)
+        frame = cv2.flip(frame, 1)
         height, width, _ = frame.shape
 
         if imAux is None: imAux = np.zeros(frame.shape, dtype=np.uint8) # Matriz de 0s del mismo tamaño que grame
@@ -67,6 +76,10 @@ with mp_hands.Hands(
         for nombre, color_informacion in seleccion_colores.items():
             x1_minicaja, y1_minicaja, x2_minicaja, y2_minicaja = color_informacion["posicion"]
             cv2.rectangle(frame, (x1_minicaja, y1_minicaja), (x2_minicaja, y2_minicaja), color_informacion["color"], color_informacion["relleno"])
+        # mostrar botn de borrador
+        x1_borrador, y1_borrador, x2_borrador, y2_borrador = borrador["posicion"]
+        cv2.rectangle(frame, (x1_borrador, y1_borrador), (x2_borrador, y2_borrador), borrador["color"], 2)
+        cv2.putText(frame, borrador["label"], (x1_borrador + 5, y1_borrador + 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, borrador["color"], 2)
         # mostrar boton limpiar pantalla
         x1_clear, y1_clear, x2_clear, y2_clear = limpiar_pantalla["posicion"]
         cv2.rectangle(frame, (x1_clear, y1_clear), (x2_clear, y2_clear), limpiar_pantalla["color"], 2)
@@ -100,6 +113,14 @@ with mp_hands.Hands(
                 x_menique = int(hand_landmarks.landmark[mp_hands.HandLandmark.PINKY_TIP].x * width)
                 y_menique = int(hand_landmarks.landmark[mp_hands.HandLandmark.PINKY_TIP].y * height)
 
+                #modo borrador
+                if x1_borrador <= x_indice <= x2_borrador and y1_borrador <= y_indice <= y2_borrador:
+                    modo_borrador = True
+                    color_inicial = (0, 0, 0)  # Color negro para el borrador
+                else:
+                    modo_borrador = False
+
+
                 # cambiar color si el dedo índice esta sobre uno de los cuadros de color
                 for nombre, color_informacion in seleccion_colores.items():
                     x1_minicaja, y1_minicaja, x2_minicaja, y2_minicaja = color_informacion["posicion"]
@@ -124,6 +145,14 @@ with mp_hands.Hands(
                 elif dibujando and y_menique < y_indice:
                     dibujando = False
                     x1, y1 = None, None  # Reiniciar coordenadas
+
+                 # dibujar o borrar
+                if dibujando and x1 is not None:
+                    if modo_borrador:
+                        cv2.line(imAux, (x1, y1), (x_indice, y_indice), (0, 0, 0), grosor_inicial)
+                    else:
+                        cv2.line(imAux, (x1, y1), (x_indice, y_indice), color_inicial, grosor_inicial)
+                    x1, y1 = x_indice, y_indice
                 #---------------------------------------------------------------------------------------------------------------
                 # Dibujar si el dedo indice está levantado
                 if dibujando and x1 is not None:
@@ -139,7 +168,7 @@ with mp_hands.Hands(
         
         # mostrar ambos resulatdos
         cv2.imshow('frame', frame)
-        #cv2.imshow('imAux',imAux)
+        cv2.imshow('imAux',imAux)
         # esc
         k = cv2.waitKey(1)
         if k == 27:

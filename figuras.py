@@ -12,85 +12,156 @@ import numpy as np
 
 # --------------------------------------------------------------
 # Inicialización de MediaPipe Hands
-mp_drawing = mp.solutions.drawing_utils # 21 puntos
-mp_hands = mp.solutions.hands # Implementación de mediapipe handaa
-#----------------------------------------------------------------
-# capturar video con cv2
-captura = cv2.VideoCapture(1) # 0 camara de la lap, 1 camara del celular
+mp_drawing = mp.solutions.drawing_utils
+mp_hands = mp.solutions.hands
+
+# --------------------------------------------------------------
+# Configuración de la cámara
+captura = cv2.VideoCapture(1)
 captura.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
 captura.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
-#----------------------------------------------------------------
-# configuracion medipipe
+
+# --------------------------------------------------------------
+# funciones para las figuras
+# calcula la distancia euclidiana entre dos puntos
+def calculate_distance(p1, p2):
+    return int(np.linalg.norm(np.array(p1) - np.array(p2)))
+# dibujar un triangulo
+def draw_triangle(img, center, size, color):
+    half_size = size // 2
+    points = np.array([
+        [center[0], center[1] - half_size],
+        [center[0] - half_size, center[1] + half_size],
+        [center[0] + half_size, center[1] + half_size]
+    ], np.int32)
+    cv2.fillPoly(img, [points], color)
+# dibujar un pentagono
+def draw_pentagon(img, center, size, color):
+    angle = np.deg2rad(360 / 5)
+    points = [
+        (
+            int(center[0] + size * np.cos(i * angle - np.pi / 2)),
+            int(center[1] + size * np.sin(i * angle - np.pi / 2))
+        ) for i in range(5)
+    ]
+    points = np.array(points, np.int32)
+    cv2.fillPoly(img, [points], color)
+# dibujar figuras basicsa 
+def draw_saved_shapes(frame, posiciones):
+    for pos in posiciones:
+        if pos['figura'] == 'square':
+            top_left = (pos['x'] - pos['tamaño'] // 2, pos['y'] - pos['tamaño'] // 2)
+            bottom_right = (pos['x'] + pos['tamaño'] // 2, pos['y'] + pos['tamaño'] // 2)
+            cv2.rectangle(frame, top_left, bottom_right, pos['color'], -1)
+        elif pos['figura'] == 'circle':
+            cv2.circle(frame, (pos['x'], pos['y']), pos['tamaño'] // 2, pos['color'], -1)
+        elif pos['figura'] == 'triangle':
+            draw_triangle(frame, (pos['x'], pos['y']), pos['tamaño'], pos['color'])
+        elif pos['figura'] == 'pentagon':
+            draw_pentagon(frame, (pos['x'], pos['y']), pos['tamaño'], pos['color'])
+# --------------------------------------------------------------
+# variables globales
+figura_geometrica = None
+tamaño_figura = 50
+color_figura = (255, 0, 255)
+posiciones_dibujadas = []
+gesture_captured = False  # Bandera para evitar redibujar
+
+# --------------------------------------------------------------
+# Procesamiento principal con MediaPipe
 with mp_hands.Hands(
     static_image_mode=False,
-    max_num_hands=2,  # Detectar ambas manos
+    max_num_hands=2,
     min_detection_confidence=0.5,
-    min_tracking_confidence=0.5  # Estos últimos 2, son valores recomendados por defecto
+    min_tracking_confidence=0.5
 ) as hands:
-    figura_geometrica = None  # seleccionará 'circle', 'square' o etc.
-    tamaño_inicial_fig = 50 
-    color_figura = (175, 255, 10)
-
-    # Calcular la distancia entre dos puntos
-    def calculate_distance(p1, p2):
-        return int(np.linalg.norm(np.array(p1) - np.array(p2)))
-
     while captura.isOpened():
         ret, frame = captura.read()
         if not ret:
             break
-        frame = cv2.flip(frame, 1)  # espejo
+
+        # preparar imagen
+        frame = cv2.flip(frame, 1)
         height, width, _ = frame.shape
         img_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         resultados = hands.process(img_rgb)
 
-        # botones dibujados en la pantalla
-        cv2.rectangle(frame, (50, 50), (150, 150), (255, 100, 0), -1)
-        cv2.circle(frame, (250, 100), 50, (238, 198, 0), -1)
-        
+        # dibujar figuras guardadas
+        draw_saved_shapes(frame, posiciones_dibujadas)
+        # --------------------------------------------------------------
+        # mostrar botones de seleccion de figuras
+        cv2.rectangle(frame, (60, 380), (100, 420), (255, 0, 255), -1)  # cuadrado
+        cv2.circle(frame, (180, 400), 25, (0, 255, 255), -1)  # circul
+        draw_triangle(frame, (300, 400), 40, (0, 165, 255))  # triangulo
+        draw_pentagon(frame, (420, 400), 30, (255, 0, 0))  # pentagon o
+        # --------------------------------------------------------------
+        # procesar ambos manos detectadas
         if resultados.multi_hand_landmarks:
-            for hand_landmarks in resultados.multi_hand_landmarks:
-                mp_drawing.draw_landmarks(
-                    frame, 
-                    hand_landmarks, 
-                    mp_hands.HAND_CONNECTIONS
-                )
-                landmarks = hand_landmarks.landmark
+            right_hand, left_hand = None, None
 
-                # index_tip = (int(landmarks[8].x * width), int(landmarks[8].y * height)) #indice 8 corresponde a la punta deldedo
-                # thumb_tip = (int(landmarks[4].x * width), int(landmarks[4].y * height)) #pulgar
-                # coordenadas de la punta de los dedos
-                x_indice = int(hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_TIP].x * width)
-                y_indice = int(hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_TIP].y * height)
-                x_menique = int(hand_landmarks.landmark[mp_hands.HandLandmark.PINKY_TIP].x * width)
-                y_menique = int(hand_landmarks.landmark[mp_hands.HandLandmark.PINKY_TIP].y * height)
-                x_pulgar = int(hand_landmarks.landmark[mp_hands.HandLandmark.THUMB_TIP].x * width)
-                y_pulgar = int(hand_landmarks.landmark[mp_hands.HandLandmark.THUMB_TIP].y * height)
+            for idx, hand_landmarks in enumerate(resultados.multi_hand_landmarks):
+                handedness = resultados.multi_handedness[idx].classification[0].label
+                if handedness == 'Right':
+                    right_hand = hand_landmarks
+                elif handedness == 'Left':
+                    left_hand = hand_landmarks
 
+            # mano derecha para seleccionar figura
+            if right_hand:
+                landmarks = right_hand.landmark
+                x_indice = int(landmarks[mp_hands.HandLandmark.INDEX_FINGER_TIP].x * width)
+                y_indice = int(landmarks[mp_hands.HandLandmark.INDEX_FINGER_TIP].y * height)
+                x_pulgar = int(landmarks[mp_hands.HandLandmark.THUMB_TIP].x * width)
+                y_pulgar = int(landmarks[mp_hands.HandLandmark.THUMB_TIP].y * height)
 
-                # deteccion de seleccion
-                if 50 < x_indice < 150 and 50 < y_indice < 150:
-                    figura_geometrica = 'square'
-                elif (x_indice - 250) ** 2 + (y_indice - 100) ** 2 < 50 ** 2:
-                    figura_geometrica = 'circle'
+                # detección de selección
+                if 60 < x_indice < 100 and 380 < y_indice < 420:
+                    figura_geometrica, color_figura = 'square', (255, 0, 255)
+                elif (x_indice - 180) ** 2 + (y_indice - 400) ** 2 < 25 ** 2:
+                    figura_geometrica, color_figura = 'circle', (0, 255, 255)
+                elif 280 < x_indice < 320 and 380 < y_indice < 420:
+                    figura_geometrica, color_figura = 'triangle', (0, 165, 255)
+                elif 390 < x_indice < 450 and 380 < y_indice < 420:
+                    figura_geometrica, color_figura = 'pentagon', (255, 0, 0)
 
-                # ajustr el tamaño de la figura (usando la distancia entre el índice y el pulgar)
+                # ajustar tamaño de las fuguras con distancia índice-pulgar
                 distancia = calculate_distance((x_indice, y_indice), (x_pulgar, y_pulgar))
-                tamaño_figura = max(20, min(200, distancia))
+                tamaño_figura = max(20, min(200, distancia)) # a elección
 
-                # mostrar la figura selecciondad
                 if figura_geometrica == 'square':
-                    top_left = (x_indice - tamaño_figura // 2, y_indice - tamaño_figura // 2)
-                    bottom_right = (x_indice + tamaño_figura // 2, y_indice + tamaño_figura // 2)
-                    cv2.rectangle(frame, top_left, bottom_right, color_figura, -1)
+                    cv2.rectangle(frame, (x_indice - tamaño_figura // 2, y_indice - tamaño_figura // 2),
+                                  (x_indice + tamaño_figura // 2, y_indice + tamaño_figura // 2), color_figura, -1)
                 elif figura_geometrica == 'circle':
                     cv2.circle(frame, (x_indice, y_indice), tamaño_figura // 2, color_figura, -1)
+                elif figura_geometrica == 'triangle':
+                    draw_triangle(frame, (x_indice, y_indice), tamaño_figura, color_figura)
+                elif figura_geometrica == 'pentagon':
+                    draw_pentagon(frame, (x_indice, y_indice), tamaño_figura, color_figura)
 
+            # mano izquierda para gesto de confirmacion para dibujar figura
+            if left_hand and figura_geometrica:
+                y_indice_izq = left_hand.landmark[mp_hands.HandLandmark.INDEX_FINGER_TIP].y
+                y_medio_izq = left_hand.landmark[mp_hands.HandLandmark.MIDDLE_FINGER_TIP].y
+
+                if y_indice_izq < left_hand.landmark[mp_hands.HandLandmark.INDEX_FINGER_PIP].y and \
+                   y_medio_izq < left_hand.landmark[mp_hands.HandLandmark.MIDDLE_FINGER_PIP].y and not gesture_captured:
+                    posiciones_dibujadas.append({
+                        'figura': figura_geometrica,
+                        'x': x_indice,
+                        'y': y_indice,
+                        'tamaño': tamaño_figura,
+                        'color': color_figura
+                    })
+                    gesture_captured = True  #evita múltiples registros del mismo gesto
+
+                if y_indice_izq > left_hand.landmark[mp_hands.HandLandmark.INDEX_FINGER_PIP].y:
+                    gesture_captured = False  # reiniciar bandera
+
+        # Mostrar ventana
         cv2.imshow("Dibujar con gestos de manos", frame)
-        # esc
-        k = cv2.waitKey(1)
-        if k == 27:
+        if cv2.waitKey(1) & 0xFF == 27:  # ESC para salir
             break
 
 captura.release()
 cv2.destroyAllWindows()
+
